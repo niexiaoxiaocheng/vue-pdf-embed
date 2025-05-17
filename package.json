@@ -29,7 +29,7 @@
   ],
   "repository": "github:hrynko/vue-pdf-embed",
   "scripts": {
-    "prepare": "husky install && npm run build",
+    "prepare": "npm run build",
     "dev": "vite -c vite.config.dev.ts",
     "build": "vite build && vite build -c vite.config.essential.ts --emptyOutDir false",
     "postbuild": "vue-tsc -p tsconfig.build.json",
@@ -55,8 +55,6 @@
     "eslint-plugin-prettier": "^5.2.1",
     "eslint-plugin-vue": "^9.27.0",
     "happy-dom": "^15.7.4",
-    "husky": "^9.1.4",
-    "lint-staged": "^15.2.9",
     "prettier": "^3.3.3",
     "rollup-plugin-copy": "^3.5.0",
     "sass": "^1.77.8",
