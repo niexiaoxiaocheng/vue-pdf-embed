@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, toRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, toRef, watch, onMounted } from 'vue'
 import { AnnotationLayer, TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { PDFLinkService } from 'pdfjs-dist/web/pdf_viewer.mjs'
 import type {
@@ -18,6 +18,18 @@ import {
   releaseChildCanvases,
 } from './utils'
 import { useVuePdfEmbed } from './composables'
+
+// 定义高亮数据类型
+interface Highlight {
+  pageNumber: number
+  x: number
+  y: number
+  width: number
+  height: number
+  text: string
+  pageWidth: number
+  pageHeight: number
+}
 
 const props = withDefaults(
   defineProps<{
@@ -66,10 +78,20 @@ const props = withDefaults(
      * Desired page width.
      */
     width?: number
+    /**
+     * Whether to show all pages.
+     */
+    allPages?: boolean
+    /**
+     * Array of highlights to display.
+     */
+    highlights?: Highlight[]
   }>(),
   {
     rotation: 0,
     scale: 1,
+    allPages: false,
+    highlights: () => []
   }
 )
 
@@ -244,9 +266,11 @@ const render = async () => {
   }
 
   try {
-    pageNums.value = props.page
+    pageNums.value = props.allPages
+      ? [...Array(doc.value.numPages + 1).keys()].slice(1)
+      : props.page
       ? [props.page]
-      : [...Array(doc.value.numPages + 1).keys()].slice(1)
+      : [1]
     pageScales.value = Array(pageNums.value.length).fill(1)
 
     await Promise.all(
@@ -399,6 +423,59 @@ const renderPageTextLayer = async (
     textContentSource: await page.getTextContent(),
     viewport,
   }).render()
+
+  // 渲染高亮
+  renderHighlights(page.pageNumber, container, viewport)
+}
+
+/**
+ * Renders highlights for a specific page.
+ * @param pageNumber - Page number.
+ * @param container - Text layer container.
+ * @param viewport - Page viewport.
+ */
+const renderHighlights = (pageNumber: number, container: HTMLElement, viewport: PageViewport) => {
+  // 获取当前页面的高亮
+  const pageHighlights = props.highlights.filter(h => h.pageNumber === pageNumber)
+  
+  pageHighlights.forEach(highlight => {
+    const highlightElement = document.createElement('div')
+    highlightElement.className = 'pdf-highlight'
+    
+    // 计算实际显示比例
+    const displayScale = viewport.width / highlight.pageWidth
+    
+    // 计算位置和尺寸
+    const x = highlight.x * displayScale
+    // 注意：PDF 坐标系原点在左下角，需要转换 Y 坐标
+    const y = (highlight.pageHeight - highlight.y - highlight.height) * displayScale
+    const width = highlight.width * displayScale
+    const height = highlight.height * displayScale
+    
+    // 设置高亮样式
+    highlightElement.style.position = 'absolute'
+    highlightElement.style.left = `${x}px`
+    highlightElement.style.top = `${y}px`
+    highlightElement.style.width = `${width}px`
+    highlightElement.style.height = `${height}px`
+    highlightElement.style.backgroundColor = 'rgba(255, 255, 0, 0.8)' // 非常深的高亮颜色
+    highlightElement.style.pointerEvents = 'none' // 确保不影响文本选择
+    
+    // 添加调试信息
+    console.log('Highlight rendering:', {
+      pageNumber,
+      original: highlight,
+      calculated: { x, y, width, height },
+      viewport: {
+        width: viewport.width,
+        height: viewport.height,
+        scale: viewport.scale
+      },
+      displayScale
+    })
+    
+    container.appendChild(highlightElement)
+  })
 }
 
 watch(
@@ -447,6 +524,24 @@ onBeforeUnmount(() => {
   releaseChildCanvases(root.value)
 })
 
+onMounted(() => {
+  if (root.value) {
+    setTimeout(() => {
+      const pages = root.value?.getElementsByClassName('vue-pdf-embed__page')
+      if (pages) {
+        // 优先使用高亮数据中的页码
+        const targetPage = props.highlights.length > 0 
+          ? props.highlights[0].pageNumber 
+          : props.page
+        
+        if (targetPage && pages[targetPage - 1]) {
+          pages[targetPage - 1].scrollIntoView({ behavior: 'smooth' })
+        }
+      }
+    }, 500)
+  }
+})
+
 defineExpose({
   doc,
   download,
@@ -478,3 +573,50 @@ defineExpose({
     </div>
   </div>
 </template>
+
+<style lang="scss">
+.vue-pdf-embed {
+  position: relative;
+
+  &__page {
+    position: relative;
+    margin-bottom: 4px;
+  }
+
+  .textLayer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+    opacity: 0.2;
+    line-height: 1.0;
+
+    > span {
+      color: transparent;
+      position: absolute;
+      white-space: pre;
+      cursor: text;
+      transform-origin: 0% 0%;
+    }
+
+    .pdf-highlight {
+      position: absolute;
+      background-color: rgba(255, 255, 0, 0.3);
+      pointer-events: none;
+      z-index: 1;
+    }
+  }
+
+  .annotationLayer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+    z-index: 3;
+  }
+}
+</style>
